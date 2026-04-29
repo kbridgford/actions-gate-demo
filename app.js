@@ -8,10 +8,10 @@ app.use(express.json());
 // Routes
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'GitHub Actions Security Gates Demo - Container Vulnerability Test',
+    message: 'GitHub Actions Security Gates Demo',
     status: 'running',
     version: '1.0.0',
-    scenario: 'testing-container-vulnerabilities'
+    scenario: 'testing-clean-deployment-success'
   });
 });
 
@@ -44,7 +44,7 @@ app.post('/api/login', (req, res) => {
       message: 'Login successful'
     });
   } else {
-    res.status(400).json({ error: 'Missing or invalid credentials' });
+    res.status(400).json({ error: 'Missing credentials' });
   }
 });
 
