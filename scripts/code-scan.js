@@ -64,7 +64,7 @@ function scanDirectory(dirPath, extensions = ['.js', '.ts', '.jsx', '.tsx']) {
       const itemPath = path.join(currentPath, item);
       const stat = fs.statSync(itemPath);
       
-      if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+      if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules' && item !== 'scripts') {
         walkDir(itemPath);
       } else if (stat.isFile() && extensions.some(ext => item.endsWith(ext))) {
         allFindings = allFindings.concat(scanFile(itemPath));
