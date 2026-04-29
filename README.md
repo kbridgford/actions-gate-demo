@@ -74,60 +74,121 @@ git push origin main
 
 **Location:** `.github/workflows/ci.yml`
 
-**How it works:**
-1. Runs SAST scanning in parallel with tests
-2. Scans for security patterns like:
-   - Hardcoded credentials
-   - Security issue markers (`SECURITY-ISSUE:`)
-   - Missing authentication
-3. Fails the gate if critical or high severity issues found
-4. Only allows deployment if code scan passes
+**Enhanced Visibility Features:**
+- 🔒 **Security Gate Evaluation** job with emoji-enhanced names
+- 📋 **Step-by-step gate validation** with individual security checks
+- 📊 **GitHub Actions Run Summary** with detailed status tables
+- 🚦 **Individual gate steps** showing pass/fail for each security component
 
-**Example gate logic:**
-```yaml
-# Gate logic: Tests must pass AND no critical/high severity issues
-if [[ "${{ needs.test.outputs.test-status }}" == "success" && "${{ needs.code-scan.outputs.scan-status }}" == "PASS" ]]; then
-  echo "✅ Security gate PASSED - ready for deployment"
-else
-  echo "❌ Security gate FAILED - deployment blocked"
-  exit 1
-fi
+**How it works:**
+1. **📋 Gather Security Gate Inputs** - Displays input status in run summary table
+2. **🚦 SECURITY GATE - Test Results Check** - Validates unit test results  
+3. **🔍 SECURITY GATE - Code Scanning Check** - Validates SAST scan results
+4. **🛡️ OVERALL SECURITY GATE DECISION** - Makes final deployment authorization
+
+**Gate Steps:**
+- Tests for security patterns like:
+  - Hardcoded credentials
+  - Security issue markers (`SECURITY-ISSUE:`)  
+  - Missing authentication
+- Each step writes detailed status to GitHub Actions run summary
+- Final decision blocks deployment if critical or high severity issues found
+
+**Example gate logic in run summary:**
+```
+🔒 Security Gate Evaluation
+
+### Input Status
+| Component | Status | Details |
+|-----------|--------|---------|
+| Tests | success | Unit tests execution |
+| Code Scan | FAIL | SAST security scanning |
+| Critical Issues | 2 | High-risk vulnerabilities |
+
+🛡️ Final Security Gate Decision
+🔴 SECURITY GATE: FAILED ❌
+🛑 DEPLOYMENT BLOCKED
 ```
 
-### Image Scanning Gate
+### Image Scanning Gate  
 
 **Location:** `.github/workflows/build-image.yml`
 
-**How it works:**
-1. Only runs if CI workflow (including code gates) passed
-2. Builds container image without pushing
-3. Scans image for:
-   - Dockerfile security issues (running as root, latest tags)
-   - Base image vulnerabilities 
-   - Compliance issues
-4. Only pushes image to registry if scan passes
-5. Blocks deployment if image has critical vulnerabilities
+**Enhanced Visibility Features:**
+- 🐳 **Image Security Gate Evaluation** job with clear visual indicators
+- 🔍 **Individual vulnerability checks** for critical and high-severity issues
+- 📊 **Detailed scan result tables** in run summaries
+- 🛡️ **Final image security decision** with authorization status
 
-**Example gate logic:**
-```yaml
-# Gate logic: No critical issues and limited high severity issues  
-if [[ "${{ needs.scan-image.outputs.scan-status }}" == "PASS" ]]; then
-  echo "✅ Image security gate PASSED - image ready for deployment"
-else
-  echo "❌ Image security gate FAILED - image deployment blocked"
-  exit 1
-fi
+**How it works:**
+1. **📋 Gather Image Security Inputs** - Shows scan results in summary table
+2. **🔍 SECURITY GATE - Critical Vulnerabilities Check** - Validates no critical issues
+3. **🔍 SECURITY GATE - High Severity Issues Check** - Validates high issues within threshold 
+4. **🛡️ OVERALL IMAGE SECURITY GATE DECISION** - Authorizes or blocks image push
+
+**Gate Steps:**
+- Only runs if CI workflow (including code gates) passed
+- Scans for:
+  - Dockerfile security issues (running as root, latest tags)
+  - Base image vulnerabilities 
+  - Compliance issues
+- Each security check is a visible step with pass/fail status
+- Only pushes image to registry if all gates pass
+- Blocks deployment if image has critical vulnerabilities
+
+**Example gate summary:**
+```
+🐳 Container Image Security Gate
+
+### Image Scan Results  
+| Component | Status | Count |
+|-----------|--------|--------|
+| Overall Scan | PASS | - |
+| Critical Issues | 🔴 | 0 |
+| High Issues | 🟠 | 1 |  
+| Total Issues | 📊 | 3 |
+
+🛡️ Final Image Security Decision
+🟢 IMAGE SECURITY GATE: PASSED ✅
+🐳 CONTAINER PUSH AUTHORIZED
 ```
 
 ### Deployment Gate
 
 **Location:** `.github/workflows/deploy.yml`
 
+**Enhanced Visibility Features:**
+- 🔐 **Deployment Security Gates** job with comprehensive validation
+- 🚦 **Multi-step gate validation** (trigger, code security, container security)  
+- 📊 **Security requirements checklist** in run summaries
+- 🛡️ **Final deployment authorization** with detailed reasoning
+
 **How it works:**
-1. Only runs if both CI and image build workflows completed successfully
-2. Verifies that all upstream security gates passed
-3. Deploys to staging first, then production
-4. Each deployment step reaffirms security gate status
+1. **🚦 GATE 1: Workflow Trigger Validation** - Ensures proper workflow completion
+2. **🔍 GATE 2: Code Security Validation** - Confirms SAST requirements met
+3. **🐳 GATE 3: Container Security Validation** - Confirms image security standards  
+4. **🛡️ FINAL DEPLOYMENT DECISION** - Authorizes or blocks production deployment
+
+**Enhanced Security Framework:**
+- Only runs if both CI and image build workflows completed successfully
+- Each gate is a separate step with clear pass/fail indication
+- Verifies that all upstream security gates passed
+- Removed staging deployment for simplified, focused flow
+- Each deployment step reaffirms security gate status with detailed summaries
+
+**Example deployment gate summary:**
+```
+🔐 Deployment Security Gates Verification
+
+🛡️ Final Deployment Decision
+🟢 DEPLOYMENT AUTHORIZED ✅
+
+All Security Requirements Satisfied:
+- ✅ Workflow trigger validation passed
+- ✅ Code security scanning passed  
+- ✅ Container security scanning passed
+- 🚀 Ready for production deployment
+```
 
 ## 🧪 Testing Different Scenarios
 

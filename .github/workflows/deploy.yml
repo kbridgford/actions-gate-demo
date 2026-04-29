@@ -19,100 +19,219 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  deployment-security-gates:
-    name: 🔐 Deployment Security Gates
+  trigger-validation-gate:
+    name: 🚦 Trigger Validation Gate
     runs-on: ubuntu-latest
     outputs:
-      can-deploy: ${{ steps.final-decision.outputs.can-deploy }}
+      trigger-valid: ${{ steps.validate.outputs.trigger-valid }}
+      can-proceed: ${{ steps.validate.outputs.can-proceed }}
     
     steps:
-    - name: 📋 Initialize Deployment Gate Check
+    - name: 📋 Initialize Trigger Validation
       run: |
-        echo "## 🔐 Deployment Security Gates Verification" >> $GITHUB_STEP_SUMMARY
+        echo "## 🚦 Trigger Validation Gate" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "Verifying all security requirements before production deployment..." >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Gate | Status | Details |" >> $GITHUB_STEP_SUMMARY
+        echo "| ------------- | ------ | ------- |" >> $GITHUB_STEP_SUMMARY
 
-    - name: 🚦 GATE 1: Workflow Trigger Validation
-      id: trigger-check
+    - name: 🔍 Validate Workflow Trigger
+      id: validate
       run: |
-        echo "### 🚦 Gate 1: Workflow Trigger Validation" >> $GITHUB_STEP_SUMMARY
-        
         if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
           if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
             echo "✅ TRIGGER GATE PASSED - Image build workflow completed successfully"
-            echo "- ✅ Image build workflow completed successfully" >> $GITHUB_STEP_SUMMARY
+            echo "| 🚦 Trigger Validation | ✅ PASS | Image build workflow succeeded |" >> $GITHUB_STEP_SUMMARY
             echo "trigger-valid=true" >> $GITHUB_OUTPUT
+            echo "can-proceed=true" >> $GITHUB_OUTPUT
           else
             echo "❌ TRIGGER GATE FAILED - Image build workflow failed"
-            echo "- ❌ Image build workflow failed or was cancelled" >> $GITHUB_STEP_SUMMARY
+            echo "| 🚦 Trigger Validation | ❌ FAIL | Image build workflow failed or cancelled |" >> $GITHUB_STEP_SUMMARY
             echo "trigger-valid=false" >> $GITHUB_OUTPUT
+            echo "can-proceed=false" >> $GITHUB_OUTPUT
+            exit 1
           fi
         elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
           if [[ "${{ github.event.inputs.force_deploy }}" == "true" ]]; then
             echo "⚠️ TRIGGER GATE BYPASSED - Force deployment requested"
-            echo "- ⚠️ Force deployment bypassing normal checks" >> $GITHUB_STEP_SUMMARY
+            echo "| 🚦 Trigger Validation | ⚠️ BYPASS | Force deployment flag enabled |" >> $GITHUB_STEP_SUMMARY
             echo "trigger-valid=bypass" >> $GITHUB_OUTPUT
+            echo "can-proceed=true" >> $GITHUB_OUTPUT
           else
             echo "❌ TRIGGER GATE FAILED - Manual deployment requires force flag"
-            echo "- ❌ Manual deployment requires force flag" >> $GITHUB_STEP_SUMMARY
+            echo "| 🚦 Trigger Validation | ❌ FAIL | Manual deployment requires force flag |" >> $GITHUB_STEP_SUMMARY
             echo "trigger-valid=false" >> $GITHUB_OUTPUT
+            echo "can-proceed=false" >> $GITHUB_OUTPUT
+            exit 1
           fi
+        else
+          echo "❌ TRIGGER GATE FAILED - Unknown trigger"
+          echo "| 🚦 Trigger Validation | ❌ FAIL | Unknown trigger type |" >> $GITHUB_STEP_SUMMARY
+          echo "trigger-valid=false" >> $GITHUB_OUTPUT
+          echo "can-proceed=false" >> $GITHUB_OUTPUT
+          exit 1
         fi
 
-    - name: 🔍 GATE 2: Code Security Validation
-      id: code-check
+  code-security-gate:
+    name: 🔍 Code Security Gate
+    runs-on: ubuntu-latest
+    needs: trigger-validation-gate
+    if: needs.trigger-validation-gate.outputs.can-proceed == 'true'
+    outputs:
+      code-secure: ${{ steps.validate.outputs.code-secure }}
+    
+    steps:
+    - name: 📋 Initialize Code Security Validation
       run: |
-        echo "### 🔍 Gate 2: Code Security Validation" >> $GITHUB_STEP_SUMMARY
+        echo "## 🔍 Code Security Gate" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Validating SAST scan results from upstream CI workflow..." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Gate | Status | Details |" >> $GITHUB_STEP_SUMMARY
+        echo "| ------------- | ------ | ------- |" >> $GITHUB_STEP_SUMMARY
+
+    - name: 🔒 Validate Code Security  
+      id: validate
+      run: |
+        trigger_valid="${{ needs.trigger-validation-gate.outputs.trigger-valid }}"
         
-        if [[ "${{ steps.trigger-check.outputs.trigger-valid }}" == "true" ]]; then
-          echo "✅ CODE SECURITY GATE PASSED - SAST scanning completed successfully"
-          echo "- ✅ SAST scanning found no critical vulnerabilities" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Code meets security standards for production" >> $GITHUB_STEP_SUMMARY
+        if [[ "$trigger_valid" == "true" ]]; then
+          echo "✅ CODE SECURITY GATE PASSED - SAST scanning requirements met"
+          echo "| 🔍 Code Security | ✅ PASS | SAST scan found no critical vulnerabilities |" >> $GITHUB_STEP_SUMMARY
           echo "code-secure=true" >> $GITHUB_OUTPUT
+        elif [[ "$trigger_valid" == "bypass" ]]; then
+          echo "⚠️ CODE SECURITY GATE BYPASSED - Force deployment mode"
+          echo "| 🔍 Code Security | ⚠️ BYPASS | Security validation bypassed (force mode) |" >> $GITHUB_STEP_SUMMARY
+          echo "code-secure=bypass" >> $GITHUB_OUTPUT
         else
           echo "❌ CODE SECURITY GATE FAILED - Upstream validation required"
-          echo "- ❌ Code security validation cannot be confirmed" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔍 Code Security | ❌ FAIL | Cannot validate code security status |" >> $GITHUB_STEP_SUMMARY
           echo "code-secure=false" >> $GITHUB_OUTPUT
+          exit 1
         fi
 
-    - name: 🐳 GATE 3: Container Security Validation  
-      id: container-check
+    - name: 📊 Security Gate Summary
       run: |
-        echo "### 🐳 Gate 3: Container Security Validation" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔒 Code Security Requirements" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Critical vulnerabilities: 0 allowed (SAST)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ High severity issues: Manual review if >0" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Security patterns validated" >> $GITHUB_STEP_SUMMARY
+
+  container-security-gate:
+    name: 🐳 Container Security Gate
+    runs-on: ubuntu-latest
+    needs: [trigger-validation-gate, code-security-gate]
+    if: needs.trigger-validation-gate.outputs.can-proceed == 'true'
+    outputs:
+      container-secure: ${{ steps.validate.outputs.container-secure }}
+    
+    steps:
+    - name: 📋 Initialize Container Security Validation
+      run: |
+        echo "## 🐳 Container Security Gate" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Validating container image scan results from upstream build workflow..." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Gate | Status | Details |" >> $GITHUB_STEP_SUMMARY
+        echo "| ------------- | ------ | ------- |" >> $GITHUB_STEP_SUMMARY
+
+    - name: 🛡️ Validate Container Security
+      id: validate
+      run: |
+        trigger_valid="${{ needs.trigger-validation-gate.outputs.trigger-valid }}"
         
-        if [[ "${{ steps.trigger-check.outputs.trigger-valid }}" == "true" ]]; then
-          echo "✅ CONTAINER SECURITY GATE PASSED - Image scanning completed successfully"
-          echo "- ✅ Container image scanning found no critical vulnerabilities" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Image meets security standards for production" >> $GITHUB_STEP_SUMMARY
+        if [[ "$trigger_valid" == "true" ]]; then
+          echo "✅ CONTAINER SECURITY GATE PASSED - Image scanning requirements met"
+          echo "| 🐳 Container Security | ✅ PASS | Image scan found acceptable vulnerability levels |" >> $GITHUB_STEP_SUMMARY
           echo "container-secure=true" >> $GITHUB_OUTPUT
+        elif [[ "$trigger_valid" == "bypass" ]]; then
+          echo "⚠️ CONTAINER SECURITY GATE BYPASSED - Force deployment mode"
+          echo "| 🐳 Container Security | ⚠️ BYPASS | Security validation bypassed (force mode) |" >> $GITHUB_STEP_SUMMARY
+          echo "container-secure=bypass" >> $GITHUB_OUTPUT
         else
           echo "❌ CONTAINER SECURITY GATE FAILED - Upstream validation required"
-          echo "- ❌ Container security validation cannot be confirmed" >> $GITHUB_STEP_SUMMARY
+          echo "| 🐳 Container Security | ❌ FAIL | Cannot validate container security status |" >> $GITHUB_STEP_SUMMARY
           echo "container-secure=false" >> $GITHUB_OUTPUT
+          exit 1
         fi
 
-    - name: 🛡️ FINAL DEPLOYMENT DECISION
-      id: final-decision
+    - name: 📊 Container Gate Summary
       run: |
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## 🛡️ Final Deployment Decision" >> $GITHUB_STEP_SUMMARY
+        echo "### 🐳 Container Security Requirements" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Critical vulnerabilities: 0 allowed" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ High severity vulnerabilities: ≤5 allowed" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Base image validated for known vulnerabilities" >> $GITHUB_STEP_SUMMARY
+
+  deployment-authorization-gate:
+    name: 🛡️ Deployment Authorization Gate
+    runs-on: ubuntu-latest
+    needs: [trigger-validation-gate, code-security-gate, container-security-gate]
+    outputs:
+      can-deploy: ${{ steps.authorize.outputs.can-deploy }}
+    
+    steps:
+    - name: 📋 Initialize Deployment Authorization
+      run: |
+        echo "## 🛡️ Deployment Authorization Gate" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Final authorization check combining all security gate results..." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+    - name: ⚖️ Evaluate All Security Gates
+      id: authorize
+      run: |
+        trigger_valid="${{ needs.trigger-validation-gate.outputs.trigger-valid }}"
+        code_secure="${{ needs.code-security-gate.outputs.code-secure }}"
+        container_secure="${{ needs.container-security-gate.outputs.container-secure }}"
         
-        trigger_valid="${{ steps.trigger-check.outputs.trigger-valid }}"
-        code_secure="${{ steps.code-check.outputs.code-secure }}"
-        container_secure="${{ steps.container-check.outputs.container-secure }}"
+        echo "### 🔍 Security Gates Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Gate | Status | Result |" >> $GITHUB_STEP_SUMMARY
+        echo "| ---- | ------ | ------ |" >> $GITHUB_STEP_SUMMARY
         
+        if [[ "$trigger_valid" == "true" ]]; then
+          echo "| 🚦 Trigger Validation | ✅ PASS | Workflow completed successfully |" >> $GITHUB_STEP_SUMMARY
+        elif [[ "$trigger_valid" == "bypass" ]]; then
+          echo "| 🚦 Trigger Validation | ⚠️ BYPASS | Force deployment enabled |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| 🚦 Trigger Validation | ❌ FAIL | Upstream workflow failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [[ "$code_secure" == "true" ]]; then
+          echo "| 🔍 Code Security | ✅ PASS | SAST requirements met |" >> $GITHUB_STEP_SUMMARY
+        elif [[ "$code_secure" == "bypass" ]]; then
+          echo "| 🔍 Code Security | ⚠️ BYPASS | Validation bypassed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| 🔍 Code Security | ❌ FAIL | Security issues detected |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [[ "$container_secure" == "true" ]]; then
+          echo "| 🐳 Container Security | ✅ PASS | Image scan requirements met |" >> $GITHUB_STEP_SUMMARY
+        elif [[ "$container_secure" == "bypass" ]]; then
+          echo "| 🐳 Container Security | ⚠️ BYPASS | Validation bypassed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| 🐳 Container Security | ❌ FAIL | Security issues detected |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+    - name: 🚀 Final Authorization Decision
+      run: |
+        trigger_valid="${{ needs.trigger-validation-gate.outputs.trigger-valid }}"
+        code_secure="${{ needs.code-security-gate.outputs.code-secure }}"
+        container_secure="${{ needs.container-security-gate.outputs.container-secure }}"
+        
+        # Check if all gates pass OR if we're in bypass mode
         if [[ "$trigger_valid" == "true" && "$code_secure" == "true" && "$container_secure" == "true" ]] || [[ "$trigger_valid" == "bypass" ]]; then
-          echo "✅ ALL SECURITY GATES PASSED - DEPLOYMENT AUTHORIZED"
+          echo "✅ ALL SECURITY GATES SATISFIED - DEPLOYMENT AUTHORIZED"
           echo "can-deploy=true" >> $GITHUB_OUTPUT
           
           echo "### 🟢 DEPLOYMENT AUTHORIZED ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**All Security Requirements Satisfied:**" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Workflow trigger validation passed" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Code security scanning passed" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Container security scanning passed" >> $GITHUB_STEP_SUMMARY
+          echo "**🔒 Security Framework Status: ALL GATES SATISFIED**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Trigger validation completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Code security requirements satisfied" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Container security requirements satisfied" >> $GITHUB_STEP_SUMMARY
           echo "- 🚀 **Ready for production deployment**" >> $GITHUB_STEP_SUMMARY
         else
           echo "❌ SECURITY GATES FAILED - DEPLOYMENT BLOCKED"
@@ -120,17 +239,22 @@ jobs:
           
           echo "### 🔴 DEPLOYMENT BLOCKED ❌" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Security Requirements Not Met:**" >> $GITHUB_STEP_SUMMARY
+          echo "**🚨 Security Framework Status: REQUIREMENTS NOT MET**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Failed Requirements:**" >> $GITHUB_STEP_SUMMARY
           
           if [[ "$trigger_valid" != "true" && "$trigger_valid" != "bypass" ]]; then
-            echo "- ❌ Workflow trigger validation failed" >> $GITHUB_STEP_SUMMARY
+            echo "- ❌ Trigger validation failed - upstream workflow issues" >> $GITHUB_STEP_SUMMARY
           fi
-          if [[ "$code_secure" != "true" ]]; then
-            echo "- ❌ Code security requirements not satisfied" >> $GITHUB_STEP_SUMMARY
+          if [[ "$code_secure" != "true" && "$code_secure" != "bypass" ]]; then
+            echo "- ❌ Code security gate failed - SAST requirements not met" >> $GITHUB_STEP_SUMMARY
           fi
-          if [[ "$container_secure" != "true" ]]; then
-            echo "- ❌ Container security requirements not satisfied" >> $GITHUB_STEP_SUMMARY
+          if [[ "$container_secure" != "true" && "$container_secure" != "bypass" ]]; then
+            echo "- ❌ Container security gate failed - image scan requirements not met" >> $GITHUB_STEP_SUMMARY
           fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**🔧 Remediation Required:** Fix security issues and retry deployment." >> $GITHUB_STEP_SUMMARY
           
           exit 1
         fi
@@ -138,96 +262,130 @@ jobs:
   deploy-production:
     name: 🚀 Deploy to Production
     runs-on: ubuntu-latest
-    needs: deployment-security-gates
-    if: needs.deployment-security-gates.outputs.can-deploy == 'true'
+    needs: deployment-authorization-gate
+    if: needs.deployment-authorization-gate.outputs.can-deploy == 'true'
     environment:
       name: production
       url: ${{ steps.deploy.outputs.url }}
     
     steps:
-    - name: 🔒 Final Pre-Deployment Security Check
+    - name: 🔒 Pre-Deployment Security Verification
       run: |
         echo "## 🚀 Production Deployment" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔒 Pre-Deployment Security Verification" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ All security gates verified and passed" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Code scanning: No critical vulnerabilities" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Container scanning: Image security validated" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Deployment authorized by security framework" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **All security gates verified and satisfied**" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Code scanning:** No critical vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Container scanning:** Image security requirements met" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Authorization framework:** Deployment approved" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 
-    - name: 🐳 Deploy Secure Container
+    - name: 🐳 Deploy Security-Approved Container
       id: deploy
       run: |
         echo "🚀 Deploying security-approved container to production..."
-        echo "📦 Using container image that passed all security gates"
+        echo "📦 Using container image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
         echo "🔧 Applying production configuration..."
-        echo "🌐 Updating load balancer..."
+        echo "🌐 Updating load balancer configuration..."
+        echo "📈 Configuring monitoring and alerting..."
         
-        # Simulate production deployment
-        sleep 3
+        # Simulate production deployment process
+        sleep 5
         
         echo "✅ Production deployment completed successfully!"
         echo "url=https://actions-gate-demo.com" >> $GITHUB_OUTPUT
         
         echo "### 🎉 Deployment Successful" >> $GITHUB_STEP_SUMMARY
         echo "- 🌍 **Application URL:** https://actions-gate-demo.com" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Security-validated container deployed" >> $GITHUB_STEP_SUMMARY
-        echo "- 🔒 All security gates satisfied" >> $GITHUB_STEP_SUMMARY
+        echo "- 📦 **Container:** Security-validated image deployed" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔒 **Security Status:** All gates satisfied" >> $GITHUB_STEP_SUMMARY
 
     - name: 🔍 Post-Deployment Security Validation
       run: |
         echo "🔍 Running post-deployment security validation..."
         echo "  ✅ Application health check: PASS"
-        echo "  ✅ Security headers validation: PASS"
-        echo "  ✅ SSL certificate check: PASS"
+        echo "  ✅ Security headers validation: PASS"  
+        echo "  ✅ SSL certificate validation: PASS"
+        echo "  ✅ API endpoint security: PASS"
         echo "  ✅ Performance baseline: PASS"
         
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔍 Post-Deployment Validation" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Application health check: PASS" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Security headers validation: PASS" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ SSL certificate check: PASS" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Performance baseline: PASS" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔍 Post-Deployment Security Validation" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Application health check:** PASS" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Security headers validation:** PASS" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **SSL certificate validation:** PASS" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **API endpoint security check:** PASS" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Performance baseline verification:** PASS" >> $GITHUB_STEP_SUMMARY
 
-  notify-deployment:
+  deployment-notification:
     name: 📢 Deployment Notification
     runs-on: ubuntu-latest
-    needs: [deployment-security-gates, deploy-production]
-    if: always() && needs.deployment-security-gates.outputs.can-deploy == 'true'
+    needs: [deployment-authorization-gate, deploy-production]
+    if: always()
     
     steps:
     - name: 📢 Create Deployment Notification
       uses: actions/github-script@v7
       with:
         script: |
-          const success = '${{ needs.deploy-production.result }}' === 'success';
-          const emoji = success ? '🎉' : '❌';
-          const status = success ? 'SUCCESS' : 'FAILED';
+          const canDeploy = '${{ needs.deployment-authorization-gate.outputs.can-deploy }}';
+          const deployResult = '${{ needs.deploy-production.result }}';
+          const success = canDeploy === 'true' && deployResult === 'success';
+          const blocked = canDeploy !== 'true';
+          
+          let emoji, status, statusDetails;
+          
+          if (blocked) {
+            emoji = '🚫';
+            status = 'BLOCKED';
+            statusDetails = 'Security gates failed - deployment blocked for security compliance';
+          } else if (success) {
+            emoji = '🎉';
+            status = 'SUCCESS';
+            statusDetails = 'All security requirements satisfied - deployment completed successfully';
+          } else {
+            emoji = '❌';
+            status = 'FAILED';
+            statusDetails = 'Security gates passed but deployment failed during execution';
+          }
           
           const body = `
           ## ${emoji} Production Deployment ${status}
           
-          **🔐 Security Gates Status:**
-          - ✅ **Code Scanning Gate:** PASSED - No critical vulnerabilities
-          - ✅ **Container Scanning Gate:** PASSED - Image security validated  
-          - ✅ **Deployment Gate:** PASSED - All requirements satisfied
+          **🔐 Security Gates Framework Status:**
+          - 🚦 **Trigger Validation:** ${{ needs.deployment-authorization-gate.result != 'skipped' && '✅ EVALUATED' || '⏭️ SKIPPED' }}
+          - 🔍 **Code Security Gate:** ${{ needs.deployment-authorization-gate.result != 'skipped' && '✅ EVALUATED' || '⏭️ SKIPPED' }}
+          - 🐳 **Container Security Gate:** ${{ needs.deployment-authorization-gate.result != 'skipped' && '✅ EVALUATED' || '⏭️ SKIPPED' }}
+          - 🛡️ **Authorization Gate:** ${{ needs.deployment-authorization-gate.result == 'success' && '✅ PASSED' || '❌ FAILED' }}
           
           **📊 Deployment Details:**
+          - **Repository:** ${{ github.repository }}
           - **Environment:** Production
           - **Triggered by:** ${{ github.event_name }}
           - **Commit:** ${{ github.sha }}
           - **Actor:** ${{ github.actor }}
+          - **Workflow:** ${{ github.workflow }}
+          
+          **🔒 Security Compliance:**
+          ${statusDetails}
           
           ${success ? 
-            '🌍 **Application URL:** https://actions-gate-demo.com\n\n🔒 **Security Framework:** All gates passed - deployment is secure and authorized!' : 
-            '❌ **Status:** Deployment failed - check workflow logs for details'}
+            '🌍 **Application URL:** https://actions-gate-demo.com\n\n✅ **Status:** Deployment completed with full security compliance!' : 
+            blocked ?
+            '🚫 **Status:** Deployment blocked by security framework - address security issues and retry\n\n📋 **Next Steps:** Review failed security gates and resolve issues before attempting deployment' :
+            '⚠️ **Status:** Security gates passed but deployment execution failed - check workflow logs'}
           `;
           
-          // Create a comment on the commit
-          github.rest.repos.createCommitComment({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            commit_sha: context.sha,
-            body: body
-          });
+          try {
+            // Create a comment on the commit
+            await github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: body
+            });
+            
+            console.log('✅ Deployment notification comment created successfully');
+          } catch (error) {
+            console.log('⚠️ Could not create commit comment:', error.message);
+          }

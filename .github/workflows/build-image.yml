@@ -28,17 +28,26 @@ jobs:
     - name: Check CI workflow status
       id: check
       run: |
+        echo "## 🔍 CI Status Check" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
         if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
           if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
-            echo "CI passed, proceeding with image build"
+            echo "✅ CI passed, proceeding with image build"
             echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "- ✅ CI workflow completed successfully" >> $GITHUB_STEP_SUMMARY
+            echo "- 🚀 Proceeding with image build" >> $GITHUB_STEP_SUMMARY
           else
-            echo "CI failed, skipping image build"
+            echo "❌ CI failed, skipping image build"
             echo "should-build=false" >> $GITHUB_OUTPUT
+            echo "- ❌ CI workflow failed or was cancelled" >> $GITHUB_STEP_SUMMARY
+            echo "- 🛑 Image build skipped" >> $GITHUB_STEP_SUMMARY
           fi
         else
-          echo "Manual trigger or Dockerfile change, proceeding with build"
+          echo "📝 Manual trigger or Dockerfile change, proceeding with build"
           echo "should-build=true" >> $GITHUB_OUTPUT
+          echo "- 📝 Manual trigger or Dockerfile change detected" >> $GITHUB_STEP_SUMMARY
+          echo "- 🚀 Proceeding with image build" >> $GITHUB_STEP_SUMMARY
         fi
 
   build-image:
@@ -52,7 +61,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -106,10 +115,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: '18'
 
@@ -125,7 +134,11 @@ jobs:
     - name: Run Container Image Scan
       id: scan
       run: |
-        echo "Running container security scan..."
+        echo "## 🐳 Container Image Scan" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Running container security scan..." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
         node scripts/image-scan.js ./Dockerfile image-scan-results.json
 
     - name: Upload scan results
@@ -150,97 +163,157 @@ jobs:
           '
         fi
 
-  image-security-gate:
-    name: 🐳 Image Security Gate Evaluation
+  # Critical vulnerabilities security gate
+  critical-vulnerabilities-gate:
+    name: 🔴 Critical Vulnerabilities Gate
     runs-on: ubuntu-latest
-    needs: [build-image, scan-image]
+    needs: [scan-image]
     outputs:
       gate-passed: ${{ steps.gate.outputs.gate-passed }}
     
     steps:
-    - name: 📋 Gather Image Security Inputs
-      run: |
-        echo "## 🐳 Container Image Security Gate" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Image Scan Results" >> $GITHUB_STEP_SUMMARY
-        echo "| Component | Status | Count |" >> $GITHUB_STEP_SUMMARY
-        echo "|-----------|--------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Overall Scan | ${{ needs.scan-image.outputs.scan-status }} | - |" >> $GITHUB_STEP_SUMMARY
-        echo "| Critical Issues | 🔴 | ${{ needs.scan-image.outputs.critical-issues }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| High Issues | 🟠 | ${{ needs.scan-image.outputs.high-issues }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Total Issues | 📊 | ${{ needs.scan-image.outputs.issues-count }} |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+    - name: Download scan results
+      uses: actions/download-artifact@v4
+      with:
+        name: image-scan-results
 
-    - name: 🔍 SECURITY GATE: Critical Vulnerabilities Check
-      run: |
-        critical_count=${{ needs.scan-image.outputs.critical-issues }}
-        if [[ "$critical_count" == "0" ]]; then
-          echo "✅ CRITICAL VULNERABILITIES CHECK PASSED - No critical issues found"
-          echo "### ✅ Critical Vulnerabilities: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "No critical security vulnerabilities detected in container image" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ CRITICAL VULNERABILITIES CHECK FAILED - $critical_count critical issues found"
-          echo "### ❌ Critical Vulnerabilities: FAILED" >> $GITHUB_STEP_SUMMARY
-          echo "Found $critical_count critical security vulnerabilities - immediate attention required" >> $GITHUB_STEP_SUMMARY
-        fi
-
-    - name: 🔍 SECURITY GATE: High Severity Issues Check
-      run: |
-        high_count=${{ needs.scan-image.outputs.high-issues }}
-        if [[ "$high_count" -le "5" ]]; then
-          echo "✅ HIGH SEVERITY CHECK PASSED - $high_count high issues (within threshold)"
-          echo "### ✅ High Severity Issues: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "High severity issues: $high_count (within acceptable threshold of 5)" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ HIGH SEVERITY CHECK FAILED - $high_count high issues (exceeds threshold of 5)"
-          echo "### ❌ High Severity Issues: FAILED" >> $GITHUB_STEP_SUMMARY
-          echo "High severity issues: $high_count (exceeds acceptable threshold of 5)" >> $GITHUB_STEP_SUMMARY
-        fi
-
-    - name: 🛡️ OVERALL IMAGE SECURITY GATE DECISION
+    - name: Evaluate Critical Vulnerabilities Gate
       id: gate
       run: |
+        echo "## 🔴 Critical Vulnerabilities Gate" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## 🛡️ Final Image Security Decision" >> $GITHUB_STEP_SUMMARY
+        echo "### Critical Vulnerability Assessment" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Count | Threshold | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|-------|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Critical Issues | ${{ needs.scan-image.outputs.critical-issues }} | 0 | ${{ needs.scan-image.outputs.critical-issues == '0' && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         
-        # Gate logic: No critical issues and limited high severity issues
-        if [[ "${{ needs.scan-image.outputs.scan-status }}" == "PASS" ]]; then
-          echo "✅ OVERALL IMAGE SECURITY GATE: PASSED"
+        critical_count=${{ needs.scan-image.outputs.critical-issues }}
+        if [[ "$critical_count" == "0" ]]; then
+          echo "✅ CRITICAL VULNERABILITIES GATE PASSED"
+          echo "No critical security vulnerabilities detected in container image"
+          echo "gate-passed=true" >> $GITHUB_OUTPUT
+          
+          echo "### 🟢 CRITICAL VULNERABILITIES GATE: PASSED ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ No critical security vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Container meets critical security requirements" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ CRITICAL VULNERABILITIES GATE FAILED"
+          echo "Found $critical_count critical security vulnerabilities - immediate attention required"
+          echo "gate-passed=false" >> $GITHUB_OUTPUT
+          
+          echo "### 🔴 CRITICAL VULNERABILITIES GATE: FAILED ❌" >> $GITHUB_STEP_SUMMARY
+          echo "- 🚨 $critical_count critical vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
+          echo "- 🛑 Container deployment blocked" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **Action Required:** Resolve all critical vulnerabilities immediately" >> $GITHUB_STEP_SUMMARY
+          
+          exit 1
+        fi
+
+  # High severity issues security gate  
+  high-severity-gate:
+    name: 🟠 High Severity Gate
+    runs-on: ubuntu-latest
+    needs: [scan-image]
+    outputs:
+      gate-passed: ${{ steps.gate.outputs.gate-passed }}
+    
+    steps:
+    - name: Download scan results
+      uses: actions/download-artifact@v4
+      with:
+        name: image-scan-results
+
+    - name: Evaluate High Severity Gate
+      id: gate
+      run: |
+        echo "## 🟠 High Severity Issues Gate" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### High Severity Assessment" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Count | Threshold | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|-------|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| High Issues | ${{ needs.scan-image.outputs.high-issues }} | ≤ 5 | ${{ (needs.scan-image.outputs.high-issues <= 5) && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        high_count=${{ needs.scan-image.outputs.high-issues }}
+        if [[ "$high_count" -le "5" ]]; then
+          echo "✅ HIGH SEVERITY GATE PASSED"
+          echo "High severity issues: $high_count (within acceptable threshold of 5)"
+          echo "gate-passed=true" >> $GITHUB_OUTPUT
+          
+          echo "### 🟢 HIGH SEVERITY GATE: PASSED ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ High severity issues within acceptable threshold" >> $GITHUB_STEP_SUMMARY
+          echo "- 📊 $high_count issues found (≤ 5 allowed)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Container meets security standards" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ HIGH SEVERITY GATE FAILED"
+          echo "High severity issues: $high_count (exceeds acceptable threshold of 5)"
+          echo "gate-passed=false" >> $GITHUB_OUTPUT
+          
+          echo "### 🔴 HIGH SEVERITY GATE: FAILED ❌" >> $GITHUB_STEP_SUMMARY
+          echo "- ⚠️ $high_count high-severity issues exceed threshold" >> $GITHUB_STEP_SUMMARY
+          echo "- 📏 Threshold: 5 issues maximum" >> $GITHUB_STEP_SUMMARY
+          echo "- 🛑 Container deployment blocked" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **Action Required:** Reduce high-severity issues to ≤ 5" >> $GITHUB_STEP_SUMMARY
+          
+          exit 1
+        fi
+
+  # Overall image security gate
+  image-security-gate:
+    name: 🛡️ Image Security Gate
+    runs-on: ubuntu-latest
+    needs: [critical-vulnerabilities-gate, high-severity-gate, scan-image]
+    outputs:
+      gate-passed: ${{ steps.gate.outputs.gate-passed }}
+    
+    steps:
+    - name: Final Image Security Decision
+      id: gate
+      run: |
+        echo "## 🛡️ Overall Image Security Gate" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Security Gate Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Gate | Status | Result |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Critical Vulnerabilities | ${{ needs.critical-vulnerabilities-gate.outputs.gate-passed }} | ${{ needs.critical-vulnerabilities-gate.outputs.gate-passed == 'true' && '✅ PASSED' || '❌ FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| High Severity Issues | ${{ needs.high-severity-gate.outputs.gate-passed }} | ${{ needs.high-severity-gate.outputs.gate-passed == 'true' && '✅ PASSED' || '❌ FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "${{ needs.critical-vulnerabilities-gate.outputs.gate-passed }}" == "true" && "${{ needs.high-severity-gate.outputs.gate-passed }}" == "true" ]]; then
+          echo "✅ ALL IMAGE SECURITY GATES PASSED"
           echo "🐳 Container image meets security standards - PUSH AUTHORIZED"
           echo "gate-passed=true" >> $GITHUB_OUTPUT
           
-          echo "### 🟢 IMAGE SECURITY GATE: PASSED ✅" >> $GITHUB_STEP_SUMMARY
-          echo "🐳 **CONTAINER PUSH AUTHORIZED**" >> $GITHUB_STEP_SUMMARY
+          echo "### 🟢 IMAGE SECURITY: AUTHORIZED ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Security Standards Met:**" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ No critical vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "**🎉 Container Security Validated:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ No critical vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ High-severity issues within acceptable limits" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Container ready for production deployment" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 **Push to registry authorized**" >> $GITHUB_STEP_SUMMARY
         else
-          echo "❌ OVERALL IMAGE SECURITY GATE: FAILED"
+          echo "❌ IMAGE SECURITY GATES FAILED"
           echo "🛑 Image security requirements not met - PUSH BLOCKED"
           echo "gate-passed=false" >> $GITHUB_OUTPUT
           
-          echo "### 🔴 IMAGE SECURITY GATE: FAILED ❌" >> $GITHUB_STEP_SUMMARY
-          echo "🛑 **CONTAINER PUSH BLOCKED**" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔴 IMAGE SECURITY: BLOCKED ❌" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Security Issues:**" >> $GITHUB_STEP_SUMMARY
+          echo "**🛑 Security Requirements Not Met:**" >> $GITHUB_STEP_SUMMARY
           
-          critical_count=${{ needs.scan-image.outputs.critical-issues }}
-          high_count=${{ needs.scan-image.outputs.high-issues }}
-          
-          if [[ "$critical_count" != "0" ]]; then
-            echo "- 🚨 $critical_count critical vulnerabilities must be resolved" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.critical-vulnerabilities-gate.outputs.gate-passed }}" != "true" ]]; then
+            echo "- ❌ Critical vulnerabilities gate failed" >> $GITHUB_STEP_SUMMARY
           fi
-          if [[ "$high_count" -gt "5" ]]; then
-            echo "- ⚠️ $high_count high-severity issues exceed threshold of 5" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.high-severity-gate.outputs.gate-passed }}" != "true" ]]; then
+            echo "- ❌ High severity issues gate failed" >> $GITHUB_STEP_SUMMARY
           fi
+          echo "- 📋 **Action Required:** Address all failing gates before deployment" >> $GITHUB_STEP_SUMMARY
           
           exit 1
         fi
 
   push-image:
-    name: Push Secure Image
+    name: 📦 Push Secure Image
     runs-on: ubuntu-latest
     needs: [build-image, image-security-gate]
     if: needs.image-security-gate.outputs.gate-passed == 'true'
@@ -261,12 +334,15 @@ jobs:
 
     - name: Load and push Docker image
       run: |
+        echo "## 📦 Push Secure Container Image" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
         docker load --input /tmp/image.tar
         echo "Pushing image(s): ${{ needs.build-image.outputs.image-tag }}"
         docker push --all-tags ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
-    - name: Image pushed successfully
-      run: |
-        echo "🎉 Container image successfully pushed to registry!"
-        echo "✅ Image passed all security gates"
-        echo "📦 Available at: ${{ needs.build-image.outputs.image-tag }}"
+        
+        echo "### 🎉 Image Push Successful" >> $GITHUB_STEP_SUMMARY
+        echo "- 📦 **Container image successfully pushed to registry**" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Image passed all security gates**" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔗 **Available at:** ${{ needs.build-image.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "- 🛡️ **Security validated and deployment ready**" >> $GITHUB_STEP_SUMMARY
