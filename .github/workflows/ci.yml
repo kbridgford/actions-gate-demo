@@ -132,7 +132,7 @@ jobs:
         echo "| Critical Issues | ${{ needs.code-scan.outputs.critical-issues }} | High-risk vulnerabilities |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 
-    - name: 🚦 SECURITY GATE: Test Results Check
+    - name: 🚦 SECURITY GATE - Test Results Check
       run: |
         if [[ "${{ needs.test.outputs.test-status }}" == "success" ]]; then
           echo "✅ TEST GATE PASSED - All unit tests successful"
@@ -144,7 +144,7 @@ jobs:
           echo "Unit tests failed - deployment blocked" >> $GITHUB_STEP_SUMMARY
         fi
 
-    - name: 🔍 SECURITY GATE: Code Scanning Check
+    - name: 🔍 SECURITY GATE - Code Scanning Check
       run: |
         if [[ "${{ needs.code-scan.outputs.scan-status }}" == "PASS" ]]; then
           echo "✅ CODE SCAN GATE PASSED - No critical security issues"
