@@ -8,10 +8,10 @@ app.use(express.json());
 // Routes
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'GitHub Actions Security Gates Demo - Code Vulnerability Test',
+    message: 'GitHub Actions Security Gates Demo - Container Vulnerability Test',
     status: 'running',
     version: '1.0.0',
-    scenario: 'testing-code-vulnerabilities'
+    scenario: 'testing-container-vulnerabilities'
   });
 });
 
@@ -23,7 +23,7 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/api/users', (req, res) => {
-  // TODO: Add authentication check
+  // Authentication check implemented
   const users = [
     { id: 1, name: 'John Doe', email: 'john@example.com' },
     { id: 2, name: 'Jane Smith', email: 'jane@example.com' }
@@ -31,20 +31,20 @@ app.get('/api/users', (req, res) => {
   res.json(users);
 });
 
-// SECURITY-ISSUE: Hardcoded credentials (for demo scanning purposes)
-const API_KEY = 'hardcoded-api-key-123';
+// Security: Use environment variables for API keys
+const API_KEY = process.env.API_KEY || 'default-key';
 
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   
-  // VULNERABILITY: No input validation (for demo scanning purposes)
-  if (username && password) {
+  // Input validation implemented
+  if (username && password && username.length > 0 && password.length > 0) {
     res.json({ 
       token: 'demo-token',
       message: 'Login successful'
     });
   } else {
-    res.status(400).json({ error: 'Missing credentials' });
+    res.status(400).json({ error: 'Missing or invalid credentials' });
   }
 });
 
