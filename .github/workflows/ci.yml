@@ -113,46 +113,85 @@ jobs:
 
   # Third job: Security Gate Check (waits for both test and scan)
   security-gate:
-    name: Security Gate Check
+    name: 🔒 Security Gate Evaluation
     runs-on: ubuntu-latest
     needs: [test, code-scan]
     outputs:
       gate-passed: ${{ steps.gate.outputs.gate-passed }}
     
     steps:
-    - name: Evaluate Security Gate
+    - name: 📋 Gather Security Gate Inputs
+      run: |
+        echo "## 🔒 Security Gate Evaluation" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Input Status" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Details |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Tests | ${{ needs.test.outputs.test-status }} | Unit tests execution |" >> $GITHUB_STEP_SUMMARY
+        echo "| Code Scan | ${{ needs.code-scan.outputs.scan-status }} | SAST security scanning |" >> $GITHUB_STEP_SUMMARY
+        echo "| Critical Issues | ${{ needs.code-scan.outputs.critical-issues }} | High-risk vulnerabilities |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+    - name: 🚦 SECURITY GATE: Test Results Check
+      run: |
+        if [[ "${{ needs.test.outputs.test-status }}" == "success" ]]; then
+          echo "✅ TEST GATE PASSED - All unit tests successful"
+          echo "### ✅ Test Gate: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "All unit tests executed successfully" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ TEST GATE FAILED - Unit tests failed"
+          echo "### ❌ Test Gate: FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "Unit tests failed - deployment blocked" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: 🔍 SECURITY GATE: Code Scanning Check
+      run: |
+        if [[ "${{ needs.code-scan.outputs.scan-status }}" == "PASS" ]]; then
+          echo "✅ CODE SCAN GATE PASSED - No critical security issues"
+          echo "### ✅ Code Scan Gate: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "SAST scanning found no critical or high-severity security issues" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ CODE SCAN GATE FAILED - Critical security issues found"
+          echo "### ❌ Code Scan Gate: FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "SAST scanning found ${{ needs.code-scan.outputs.critical-issues }} critical issues - deployment blocked" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: 🛡️ OVERALL SECURITY GATE DECISION
       id: gate
       run: |
-        echo "Evaluating security gate..."
-        echo "Test Status: ${{ needs.test.outputs.test-status }}"
-        echo "Code Scan Status: ${{ needs.code-scan.outputs.scan-status }}"
-        echo "Critical Issues: ${{ needs.code-scan.outputs.critical-issues }}"
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 🛡️ Final Security Gate Decision" >> $GITHUB_STEP_SUMMARY
         
         # Gate logic: Tests must pass AND no critical/high severity issues
         if [[ "${{ needs.test.outputs.test-status }}" == "success" && "${{ needs.code-scan.outputs.scan-status }}" == "PASS" ]]; then
-          echo "✅ Security gate PASSED - ready for deployment"
+          echo "✅ OVERALL SECURITY GATE: PASSED"
+          echo "🚀 All security requirements satisfied - DEPLOYMENT AUTHORIZED"
           echo "gate-passed=true" >> $GITHUB_OUTPUT
+          
+          echo "### 🟢 SECURITY GATE: PASSED ✅" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 **DEPLOYMENT AUTHORIZED**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Requirements Satisfied:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ All tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ No critical security vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Code meets security standards for deployment" >> $GITHUB_STEP_SUMMARY
         else
-          echo "❌ Security gate FAILED - deployment blocked"
+          echo "❌ OVERALL SECURITY GATE: FAILED"
+          echo "🛑 Security requirements not met - DEPLOYMENT BLOCKED"
           echo "gate-passed=false" >> $GITHUB_OUTPUT
-          exit 1
-        fi
-
-    - name: Gate Status Summary
-      if: always()
-      run: |
-        if [[ "${{ steps.gate.outputs.gate-passed }}" == "true" ]]; then
-          echo "🟢 SECURITY GATE: PASSED"
-          echo "✅ Tests passed"
-          echo "✅ No critical security issues found"
-          echo "🚀 Ready for deployment"
-        else
-          echo "🔴 SECURITY GATE: FAILED"
-          echo "❌ Deployment blocked due to security concerns"
+          
+          echo "### 🔴 SECURITY GATE: FAILED ❌" >> $GITHUB_STEP_SUMMARY
+          echo "🛑 **DEPLOYMENT BLOCKED**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Issues Found:**" >> $GITHUB_STEP_SUMMARY
+          
           if [[ "${{ needs.test.outputs.test-status }}" != "success" ]]; then
-            echo "  - Tests failed"
+            echo "- ❌ Unit tests failed" >> $GITHUB_STEP_SUMMARY
           fi
           if [[ "${{ needs.code-scan.outputs.scan-status }}" != "PASS" ]]; then
-            echo "  - Code scan found critical/high severity issues"
+            echo "- ❌ Critical security vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
+            echo "- 🚨 ${{ needs.code-scan.outputs.critical-issues }} critical issues must be resolved" >> $GITHUB_STEP_SUMMARY
           fi
+          
+          exit 1
         fi
