@@ -8,9 +8,10 @@ app.use(express.json());
 // Routes
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'GitHub Actions Security Gates Demo',
+    message: 'GitHub Actions Security Gates Demo - Code Vulnerability Test',
     status: 'running',
-    version: '1.0.0'
+    version: '1.0.0',
+    scenario: 'testing-code-vulnerabilities'
   });
 });
 
