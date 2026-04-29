@@ -1,0 +1,27 @@
+{
+  "name": "actions-gate-demo",
+  "version": "1.0.0",
+  "description": "Demo application showing GitHub Actions security gates",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "jest",
+    "dev": "nodemon app.js"
+  },
+  "keywords": [
+    "github-actions",
+    "security",
+    "gates",
+    "demo"
+  ],
+  "author": "Demo",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "jest": "^29.5.0",
+    "nodemon": "^2.0.22",
+    "supertest": "^7.2.2"
+  }
+}

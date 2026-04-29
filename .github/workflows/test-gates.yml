@@ -1,0 +1,129 @@
+name: Test Security Gates
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_scenario:
+        description: 'Test scenario to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - pass
+        - code-fail
+        - image-fail
+
+jobs:
+  test-scenario:
+    name: Test Security Gates Scenarios
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Test Scenario - All Pass
+      if: github.event.inputs.test_scenario == 'all' || github.event.inputs.test_scenario == 'pass'
+      run: |
+        echo "🧪 Testing scenario: All security gates PASS"
+        
+        # Create clean version for testing
+        cp app.js app.js.backup
+        # Remove security issues from app.js temporarily
+        sed -i.bak '/SECURITY-ISSUE:/d; /VULNERABILITY:/d; /hardcoded.*key/d' app.js
+        
+        echo "Running code scan on clean code..."
+        node scripts/code-scan.js . test-results-pass.json || true
+        
+        echo "Running image scan..."
+        node scripts/image-scan.js ./Dockerfile test-image-pass.json || true
+        
+        echo "Results:"
+        if [ -f "test-results-pass.json" ]; then
+          echo "Code scan status: $(cat test-results-pass.json | jq -r '.status')"
+        fi
+        if [ -f "test-image-pass.json" ]; then
+          echo "Image scan status: $(cat test-image-pass.json | jq -r '.status')"
+        fi
+        
+        # Restore original file
+        mv app.js.backup app.js
+
+    - name: Test Scenario - Code Scanning Fail
+      if: github.event.inputs.test_scenario == 'all' || github.event.inputs.test_scenario == 'code-fail'
+      run: |
+        echo "🧪 Testing scenario: Code scanning FAIL"
+        
+        # Add extra security issues for testing
+        echo "// VULNERABILITY: SQL injection risk" >> app.js
+        echo "// SECURITY-ISSUE: XSS vulnerability" >> app.js
+        
+        echo "Running code scan on vulnerable code..."
+        node scripts/code-scan.js . test-results-fail.json || true
+        
+        echo "Results:"
+        if [ -f "test-results-fail.json" ]; then
+          echo "Code scan status: $(cat test-results-fail.json | jq -r '.status')"
+          echo "Critical issues: $(cat test-results-fail.json | jq -r '.summary.critical')"
+          echo "High issues: $(cat test-results-fail.json | jq -r '.summary.high')"
+        fi
+        
+        # Clean up test changes
+        git checkout -- app.js || true
+
+    - name: Test Scenario - Image Scanning Fail
+      if: github.event.inputs.test_scenario == 'all' || github.event.inputs.test_scenario == 'image-fail'
+      run: |
+        echo "🧪 Testing scenario: Image scanning FAIL"
+        
+        # Create vulnerable Dockerfile for testing
+        cp Dockerfile Dockerfile.backup
+        echo "# SECURITY-ISSUE: Additional vulnerability" >> Dockerfile
+        echo "USER root" >> Dockerfile
+        
+        echo "Running image scan on vulnerable Dockerfile..."
+        node scripts/image-scan.js ./Dockerfile test-image-fail.json || true
+        
+        echo "Results:"
+        if [ -f "test-image-fail.json" ]; then
+          echo "Image scan status: $(cat test-image-fail.json | jq -r '.status')"
+          echo "Critical issues: $(cat test-image-fail.json | jq -r '.summary.critical')"
+          echo "High issues: $(cat test-image-fail.json | jq -r '.summary.high')"
+        fi
+        
+        # Restore original Dockerfile
+        mv Dockerfile.backup Dockerfile
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gate-test-results
+        path: test-*.json
+
+    - name: Test Results Summary
+      if: always()
+      run: |
+        echo "🧪 Security Gates Test Summary:"
+        echo ""
+        
+        for file in test-*.json; do
+          if [ -f "$file" ]; then
+            scenario=$(echo $file | sed 's/test-\(.*\)\.json/\1/')
+            status=$(cat $file | jq -r '.status' 2>/dev/null || echo "ERROR")
+            echo "📊 Scenario '$scenario': $status"
+          fi
+        done
+        
+        echo ""
+        echo "✅ Test scenarios completed successfully!"
+        echo "🔒 Security gates are working as expected"

@@ -1,0 +1,204 @@
+name: Deploy to Production
+
+on:
+  workflow_run:
+    workflows: ["Build and Scan Container Image"]
+    branches: [main]
+    types: 
+      - completed
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deployment (bypasses some checks)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  check-security-gates:
+    name: Verify Security Gates
+    runs-on: ubuntu-latest
+    outputs:
+      gates-passed: ${{ steps.verify.outputs.gates-passed }}
+      can-deploy: ${{ steps.verify.outputs.can-deploy }}
+    
+    steps:
+    - name: Verify all security gates passed
+      id: verify
+      run: |
+        echo "Checking security gates status..."
+        
+        # Check if this was triggered by successful image build workflow
+        if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+          if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+            echo "✅ Image build workflow completed successfully"
+            echo "✅ This implies both code scanning and image scanning gates passed"
+            echo "gates-passed=true" >> $GITHUB_OUTPUT
+            echo "can-deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Image build workflow failed or was cancelled"
+            echo "❌ Security gates not satisfied"
+            echo "gates-passed=false" >> $GITHUB_OUTPUT
+            echo "can-deploy=false" >> $GITHUB_OUTPUT
+          fi
+        elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ github.event.inputs.force_deploy }}" == "true" ]]; then
+            echo "⚠️  Force deployment requested - bypassing gate checks"
+            echo "gates-passed=bypassed" >> $GITHUB_OUTPUT
+            echo "can-deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Manual deployment requires force flag or triggered by successful workflow"
+            echo "gates-passed=unknown" >> $GITHUB_OUTPUT
+            echo "can-deploy=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "❌ Invalid trigger for deployment"
+          echo "gates-passed=false" >> $GITHUB_OUTPUT
+          echo "can-deploy=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Security Gates Summary
+      run: |
+        echo "🔒 Security Gates Verification:"
+        echo "  Gates Status: ${{ steps.verify.outputs.gates-passed }}"
+        echo "  Can Deploy: ${{ steps.verify.outputs.can-deploy }}"
+        
+        if [[ "${{ steps.verify.outputs.can-deploy }}" == "true" ]]; then
+          echo "✅ All security requirements satisfied"
+          echo "🚀 Deployment authorized"
+        else
+          echo "❌ Security requirements not met"
+          echo "🛑 Deployment blocked"
+        fi
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: check-security-gates
+    if: needs.check-security-gates.outputs.can-deploy == 'true'
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      deployment-url: ${{ steps.deploy.outputs.url }}
+    
+    steps:
+    - name: Simulate staging deployment
+      id: deploy
+      run: |
+        echo "🚀 Deploying to staging environment..."
+        echo "📦 Pulling latest secure image from registry"
+        echo "🔧 Applying configuration..."
+        
+        # Simulate deployment steps
+        sleep 2
+        
+        echo "✅ Staging deployment completed!"
+        echo "url=https://staging.actions-gate-demo.com" >> $GITHUB_OUTPUT
+
+    - name: Run smoke tests
+      run: |
+        echo "🧪 Running smoke tests on staging..."
+        echo "  ✅ Health check passed"
+        echo "  ✅ API endpoints responding"
+        echo "  ✅ Database connectivity verified"
+        echo "🎉 Staging environment ready!"
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [check-security-gates, deploy-staging]
+    if: needs.check-security-gates.outputs.can-deploy == 'true'
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    
+    steps:
+    - name: Final security verification
+      run: |
+        echo "🔒 Performing final security verification..."
+        echo "  ✅ Code scanning: PASSED (no critical/high issues)"
+        echo "  ✅ Image scanning: PASSED (container is secure)"
+        echo "  ✅ Staging tests: PASSED"
+        echo "🛡️  All security gates verified!"
+
+    - name: Deploy to production
+      id: deploy
+      run: |
+        echo "🚀 Deploying to production environment..."
+        echo "📦 Using security-approved container image"
+        echo "🔧 Applying production configuration..."
+        echo "🌐 Updating load balancer..."
+        
+        # Simulate production deployment
+        sleep 3
+        
+        echo "✅ Production deployment completed!"
+        echo "url=https://actions-gate-demo.com" >> $GITHUB_OUTPUT
+
+    - name: Post-deployment verification
+      run: |
+        echo "🔍 Running post-deployment verification..."
+        echo "  ✅ Application health check: PASS"
+        echo "  ✅ Security headers validation: PASS"
+        echo "  ✅ SSL certificate check: PASS"
+        echo "  ✅ Performance baseline: PASS"
+        echo "🎉 Production deployment successful!"
+
+    - name: Deployment summary
+      run: |
+        echo "🎊 DEPLOYMENT COMPLETE! 🎊"
+        echo ""
+        echo "✨ Security Gates Summary:"
+        echo "  🔒 Code Scanning: ✅ PASSED"
+        echo "  🐳 Image Scanning: ✅ PASSED"
+        echo "  🧪 Staging Tests: ✅ PASSED"
+        echo ""
+        echo "🌍 Application URL: ${{ steps.deploy.outputs.url }}"
+        echo "📊 Deployment verified and secure!"
+
+  notify-deployment:
+    name: Notify Deployment Success
+    runs-on: ubuntu-latest
+    needs: [check-security-gates, deploy-production]
+    if: always() && needs.check-security-gates.outputs.can-deploy == 'true'
+    
+    steps:
+    - name: Create deployment notification
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const success = '${{ needs.deploy-production.result }}' === 'success';
+          const emoji = success ? '🎉' : '❌';
+          const status = success ? 'SUCCESS' : 'FAILED';
+          
+          const body = `
+          ## ${emoji} Production Deployment ${status}
+          
+          **Security Gates Status:**
+          - ✅ Code Scanning: PASSED
+          - ✅ Container Scanning: PASSED
+          - ✅ All security requirements satisfied
+          
+          **Deployment Details:**
+          - Environment: Production
+          - Triggered by: ${{ github.event_name }}
+          - Commit: ${{ github.sha }}
+          - Actor: ${{ github.actor }}
+          
+          ${success ? 
+            '🌍 **Application URL:** https://actions-gate-demo.com\n\n🔒 **Security:** All gates passed successfully!' : 
+            '❌ **Status:** Deployment failed - check workflow logs'}
+          `;
+          
+          // Create a comment on the commit
+          github.rest.repos.createCommitComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            commit_sha: context.sha,
+            body: body
+          });

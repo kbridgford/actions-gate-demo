@@ -1,0 +1,222 @@
+name: Build and Scan Container Image
+
+on:
+  workflow_run:
+    workflows: ["CI - Code Scanning and Tests"]
+    branches: [main]
+    types: 
+      - completed
+  push:
+    branches: [main]
+    paths: 
+      - 'Dockerfile'
+      - 'package*.json'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Only run if CI passed or if manually triggered
+  check-ci:
+    name: Check CI Status
+    runs-on: ubuntu-latest
+    outputs:
+      should-build: ${{ steps.check.outputs.should-build }}
+    
+    steps:
+    - name: Check CI workflow status
+      id: check
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+          if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+            echo "CI passed, proceeding with image build"
+            echo "should-build=true" >> $GITHUB_OUTPUT
+          else
+            echo "CI failed, skipping image build"
+            echo "should-build=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "Manual trigger or Dockerfile change, proceeding with build"
+          echo "should-build=true" >> $GITHUB_OUTPUT
+        fi
+
+  build-image:
+    name: Build Container Image
+    runs-on: ubuntu-latest
+    needs: check-ci
+    if: needs.check-ci.outputs.should-build == 'true'
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build container image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        outputs: type=docker,dest=/tmp/image.tar
+
+    - name: Upload image artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: container-image
+        path: /tmp/image.tar
+        retention-days: 1
+
+  scan-image:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    needs: build-image
+    outputs:
+      scan-status: ${{ steps.scan.outputs.scan-status }}
+      issues-count: ${{ steps.scan.outputs.issues-count }}
+      critical-issues: ${{ steps.scan.outputs.critical-issues }}
+      high-issues: ${{ steps.scan.outputs.high-issues }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Download image artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: container-image
+        path: /tmp
+
+    - name: Load Docker image
+      run: docker load --input /tmp/image.tar
+
+    - name: Run Container Image Scan
+      id: scan
+      run: |
+        echo "Running container security scan..."
+        node scripts/image-scan.js ./Dockerfile image-scan-results.json
+
+    - name: Upload scan results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: image-scan-results
+        path: image-scan-results.json
+
+    - name: Display scan summary
+      if: always()
+      run: |
+        echo "Container Image Scan Summary:"
+        if [ -f "image-scan-results.json" ]; then
+          cat image-scan-results.json | jq -r '
+            "Status: " + .status,
+            "Total Issues: " + (.summary.total | tostring),
+            "  Critical: " + (.summary.critical | tostring),
+            "  High: " + (.summary.high | tostring),
+            "  Medium: " + (.summary.medium | tostring),
+            "  Low: " + (.summary.low | tostring)
+          '
+        fi
+
+  image-security-gate:
+    name: Image Security Gate
+    runs-on: ubuntu-latest
+    needs: [build-image, scan-image]
+    outputs:
+      gate-passed: ${{ steps.gate.outputs.gate-passed }}
+    
+    steps:
+    - name: Evaluate Image Security Gate
+      id: gate
+      run: |
+        echo "Evaluating image security gate..."
+        echo "Image Scan Status: ${{ needs.scan-image.outputs.scan-status }}"
+        echo "Critical Issues: ${{ needs.scan-image.outputs.critical-issues }}"
+        echo "High Issues: ${{ needs.scan-image.outputs.high-issues }}"
+        
+        # Gate logic: No critical issues and limited high severity issues
+        if [[ "${{ needs.scan-image.outputs.scan-status }}" == "PASS" ]]; then
+          echo "✅ Image security gate PASSED - image ready for deployment"
+          echo "gate-passed=true" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Image security gate FAILED - image deployment blocked"
+          echo "gate-passed=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Gate Status Summary
+      if: always()
+      run: |
+        if [[ "${{ steps.gate.outputs.gate-passed }}" == "true" ]]; then
+          echo "🟢 IMAGE SECURITY GATE: PASSED"
+          echo "✅ No critical security issues found in container image"
+          echo "🐳 Image ready for deployment"
+        else
+          echo "🔴 IMAGE SECURITY GATE: FAILED"
+          echo "❌ Image deployment blocked due to security concerns"
+          echo "🚨 Critical or too many high severity issues found"
+        fi
+
+  push-image:
+    name: Push Secure Image
+    runs-on: ubuntu-latest
+    needs: [build-image, image-security-gate]
+    if: needs.image-security-gate.outputs.gate-passed == 'true'
+    
+    steps:
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Download image artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: container-image
+        path: /tmp
+
+    - name: Load and push Docker image
+      run: |
+        docker load --input /tmp/image.tar
+        echo "Pushing image(s): ${{ needs.build-image.outputs.image-tag }}"
+        docker push --all-tags ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+    - name: Image pushed successfully
+      run: |
+        echo "🎉 Container image successfully pushed to registry!"
+        echo "✅ Image passed all security gates"
+        echo "📦 Available at: ${{ needs.build-image.outputs.image-tag }}"
