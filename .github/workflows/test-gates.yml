@@ -87,6 +87,7 @@ jobs:
         
         # Create vulnerable Dockerfile for testing
         cp Dockerfile Dockerfile.backup
+        echo "# VULNERABILITY: Critical container escape risk" >> Dockerfile
         echo "# SECURITY-ISSUE: Additional vulnerability" >> Dockerfile
         echo "USER root" >> Dockerfile
         

@@ -214,6 +214,7 @@ All Security Requirements Satisfied:
 **3. Image Scanning Fails:**
 ```bash
 # Add these lines to Dockerfile:
+# VULNERABILITY: Critical container escape risk
 # SECURITY-ISSUE: Additional vulnerability  
 USER root
 ```
@@ -282,6 +283,11 @@ const SECURITY_PATTERNS = [
 **Image Scanner (`scripts/image-scan.js`):**
 ```javascript
 const IMAGE_SECURITY_PATTERNS = [
+  {
+    pattern: /#.*VULNERABILITY:/gi,
+    severity: 'CRITICAL',
+    description: 'Critical vulnerability marker found in Dockerfile'
+  },
   {
     pattern: /FROM.*:latest/gi,
     severity: 'MEDIUM', 
