@@ -41,7 +41,8 @@ jobs:
             echo "❌ CI failed, skipping image build"
             echo "should-build=false" >> $GITHUB_OUTPUT
             echo "- ❌ CI workflow failed or was cancelled" >> $GITHUB_STEP_SUMMARY
-            echo "- 🛑 Image build skipped" >> $GITHUB_STEP_SUMMARY
+            echo "- 🛑 Image build blocked by failed CI gate" >> $GITHUB_STEP_SUMMARY
+            exit 1
           fi
         else
           echo "📝 Manual trigger or Dockerfile change, proceeding with build"
@@ -168,11 +169,13 @@ jobs:
     name: 🔴 Critical Vulnerabilities Gate
     runs-on: ubuntu-latest
     needs: [scan-image]
+    if: always()
     outputs:
       gate-passed: ${{ steps.gate.outputs.gate-passed }}
     
     steps:
     - name: Download scan results
+      if: needs.scan-image.result == 'success'
       uses: actions/download-artifact@v4
       with:
         name: image-scan-results
@@ -180,16 +183,29 @@ jobs:
     - name: Evaluate Critical Vulnerabilities Gate
       id: gate
       run: |
+        scan_result="${{ needs.scan-image.result }}"
+        critical_count="${{ needs.scan-image.outputs.critical-issues }}"
+
         echo "## 🔴 Critical Vulnerabilities Gate" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Critical Vulnerability Assessment" >> $GITHUB_STEP_SUMMARY
         echo "| Component | Count | Threshold | Status |" >> $GITHUB_STEP_SUMMARY
         echo "|-----------|-------|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Critical Issues | ${{ needs.scan-image.outputs.critical-issues }} | 0 | ${{ needs.scan-image.outputs.critical-issues == '0' && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Scan Job | ${scan_result} | success | $([[ "$scan_result" == "success" ]] && echo '✅ PASS' || echo '❌ FAIL') |" >> $GITHUB_STEP_SUMMARY
+        echo "| Critical Issues | ${critical_count:-n/a} | 0 | $([[ "$critical_count" == "0" ]] && echo '✅ PASS' || echo '❌ FAIL') |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        
-        critical_count=${{ needs.scan-image.outputs.critical-issues }}
-        if [[ "$critical_count" == "0" ]]; then
+
+        if [[ "$scan_result" != "success" ]]; then
+          echo "❌ CRITICAL VULNERABILITIES GATE FAILED"
+          echo "Container scan job did not complete successfully"
+          echo "gate-passed=false" >> $GITHUB_OUTPUT
+
+          echo "### 🔴 CRITICAL VULNERABILITIES GATE: FAILED ❌" >> $GITHUB_STEP_SUMMARY
+          echo "- 🛑 Container scan did not complete successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **Action Required:** Fix the image scan job before proceeding" >> $GITHUB_STEP_SUMMARY
+
+          exit 1
+        elif [[ "$critical_count" == "0" ]]; then
           echo "✅ CRITICAL VULNERABILITIES GATE PASSED"
           echo "No critical security vulnerabilities detected in container image"
           echo "gate-passed=true" >> $GITHUB_OUTPUT
@@ -215,11 +231,13 @@ jobs:
     name: 🟠 High Severity Gate
     runs-on: ubuntu-latest
     needs: [scan-image]
+    if: always()
     outputs:
       gate-passed: ${{ steps.gate.outputs.gate-passed }}
     
     steps:
     - name: Download scan results
+      if: needs.scan-image.result == 'success'
       uses: actions/download-artifact@v4
       with:
         name: image-scan-results
@@ -227,16 +245,29 @@ jobs:
     - name: Evaluate High Severity Gate
       id: gate
       run: |
+        scan_result="${{ needs.scan-image.result }}"
+        high_count="${{ needs.scan-image.outputs.high-issues }}"
+
         echo "## 🟠 High Severity Issues Gate" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### High Severity Assessment" >> $GITHUB_STEP_SUMMARY
         echo "| Component | Count | Threshold | Status |" >> $GITHUB_STEP_SUMMARY
         echo "|-----------|-------|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| High Issues | ${{ needs.scan-image.outputs.high-issues }} | ≤ 5 | ${{ (needs.scan-image.outputs.high-issues <= 5) && '✅ PASS' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Scan Job | ${scan_result} | success | $([[ "$scan_result" == "success" ]] && echo '✅ PASS' || echo '❌ FAIL') |" >> $GITHUB_STEP_SUMMARY
+        echo "| High Issues | ${high_count:-n/a} | ≤ 5 | $([[ -n "$high_count" && "$high_count" -le 5 ]] && echo '✅ PASS' || echo '❌ FAIL') |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        
-        high_count=${{ needs.scan-image.outputs.high-issues }}
-        if [[ "$high_count" -le "5" ]]; then
+
+        if [[ "$scan_result" != "success" ]]; then
+          echo "❌ HIGH SEVERITY GATE FAILED"
+          echo "Container scan job did not complete successfully"
+          echo "gate-passed=false" >> $GITHUB_OUTPUT
+
+          echo "### 🔴 HIGH SEVERITY GATE: FAILED ❌" >> $GITHUB_STEP_SUMMARY
+          echo "- 🛑 Container scan did not complete successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **Action Required:** Fix the image scan job before proceeding" >> $GITHUB_STEP_SUMMARY
+
+          exit 1
+        elif [[ "$high_count" -le "5" ]]; then
           echo "✅ HIGH SEVERITY GATE PASSED"
           echo "High severity issues: $high_count (within acceptable threshold of 5)"
           echo "gate-passed=true" >> $GITHUB_OUTPUT
@@ -264,6 +295,7 @@ jobs:
     name: 🛡️ Image Security Gate
     runs-on: ubuntu-latest
     needs: [critical-vulnerabilities-gate, high-severity-gate, scan-image]
+    if: always()
     outputs:
       gate-passed: ${{ steps.gate.outputs.gate-passed }}
     
@@ -271,16 +303,21 @@ jobs:
     - name: Final Image Security Decision
       id: gate
       run: |
+        critical_gate_result="${{ needs.critical-vulnerabilities-gate.result }}"
+        critical_gate_passed="${{ needs.critical-vulnerabilities-gate.outputs.gate-passed }}"
+        high_gate_result="${{ needs.high-severity-gate.result }}"
+        high_gate_passed="${{ needs.high-severity-gate.outputs.gate-passed }}"
+
         echo "## 🛡️ Overall Image Security Gate" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Security Gate Summary" >> $GITHUB_STEP_SUMMARY
         echo "| Gate | Status | Result |" >> $GITHUB_STEP_SUMMARY
         echo "|------|--------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Critical Vulnerabilities | ${{ needs.critical-vulnerabilities-gate.outputs.gate-passed }} | ${{ needs.critical-vulnerabilities-gate.outputs.gate-passed == 'true' && '✅ PASSED' || '❌ FAILED' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| High Severity Issues | ${{ needs.high-severity-gate.outputs.gate-passed }} | ${{ needs.high-severity-gate.outputs.gate-passed == 'true' && '✅ PASSED' || '❌ FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Critical Vulnerabilities | ${critical_gate_result} | ${critical_gate_passed:-false} |" >> $GITHUB_STEP_SUMMARY
+        echo "| High Severity Issues | ${high_gate_result} | ${high_gate_passed:-false} |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        if [[ "${{ needs.critical-vulnerabilities-gate.outputs.gate-passed }}" == "true" && "${{ needs.high-severity-gate.outputs.gate-passed }}" == "true" ]]; then
+        if [[ "$critical_gate_passed" == "true" && "$high_gate_passed" == "true" ]]; then
           echo "✅ ALL IMAGE SECURITY GATES PASSED"
           echo "🐳 Container image meets security standards - PUSH AUTHORIZED"
           echo "gate-passed=true" >> $GITHUB_OUTPUT

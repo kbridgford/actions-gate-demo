@@ -167,6 +167,7 @@ jobs:
     name: 🛡️ Deployment Authorization Gate
     runs-on: ubuntu-latest
     needs: [trigger-validation-gate, code-security-gate, container-security-gate]
+    if: always()
     outputs:
       can-deploy: ${{ steps.authorize.outputs.can-deploy }}
     
@@ -179,7 +180,6 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
 
     - name: ⚖️ Evaluate All Security Gates
-      id: authorize
       run: |
         trigger_valid="${{ needs.trigger-validation-gate.outputs.trigger-valid }}"
         code_secure="${{ needs.code-security-gate.outputs.code-secure }}"
@@ -216,6 +216,7 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
 
     - name: 🚀 Final Authorization Decision
+      id: authorize
       run: |
         trigger_valid="${{ needs.trigger-validation-gate.outputs.trigger-valid }}"
         code_secure="${{ needs.code-security-gate.outputs.code-secure }}"
