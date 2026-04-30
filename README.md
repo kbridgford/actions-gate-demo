@@ -5,6 +5,11 @@ This repository demonstrates how to implement security gates in GitHub Actions w
 1. **Code Scanning Gate** - SAST scanning that blocks deployment when security issues are found
 2. **Image Scanning Gate** - Container image scanning that prevents insecure images from being deployed
 
+It also demonstrates **two enforcement models side by side**:
+
+- **`main`**: workflow-based security gates inside the pipeline
+- **`prod`**: branch ruleset enforcement using a required SAST status check
+
 ## 🎯 Demo Overview
 
 This demo creates a complete CI/CD pipeline with security gates that:
@@ -68,6 +73,8 @@ git commit -m "Test security gates"
 git push origin main
 ```
 
+To see the branch-ruleset demo, open a pull request targeting `prod`. The required check comes from `.github/workflows/prod-sast-ruleset.yml`.
+
 ## 🔒 Security Gates Explained
 
 ### Code Scanning Gate
@@ -85,6 +92,11 @@ git push origin main
 2. **🚦 SECURITY GATE - Test Results Check** - Validates unit test results  
 3. **🔍 SECURITY GATE - Code Scanning Check** - Validates SAST scan results
 4. **🛡️ OVERALL SECURITY GATE DECISION** - Makes final deployment authorization
+
+**Branch ruleset variant (`prod`):**
+- A separate workflow named `Prod SAST Ruleset Check` runs on pull requests to `prod`
+- The job name `prod-sast-required` is the stable required status check for the branch ruleset
+- This blocks merges into `prod` without relying on downstream deploy gates
 
 **Gate Steps:**
 - Tests for security patterns like:

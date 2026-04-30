@@ -1,0 +1,40 @@
+name: Prod SAST Ruleset Check
+
+on:
+  pull_request:
+    branches: [ prod ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  prod-sast-required:
+    name: prod-sast-required
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Run SAST scan
+      run: |
+        echo "## prod branch ruleset SAST check" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- Branch target: prod" >> $GITHUB_STEP_SUMMARY
+        echo "- Enforcement model: required status check via branch ruleset" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        node scripts/code-scan.js . code-scan-results.json
+
+    - name: Upload scan results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: prod-sast-scan-results
+        path: code-scan-results.json
