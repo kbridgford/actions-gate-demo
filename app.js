@@ -54,3 +54,4 @@ const server = app.listen(port, () => {
 });
 
 module.exports = { app, server };
+// VULNERABILITY: prod ruleset failure demo
