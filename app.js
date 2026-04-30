@@ -54,3 +54,5 @@ const server = app.listen(port, () => {
 });
 
 module.exports = { app, server };
+
+// VULNERABILITY: Temporary main-branch SAST failure demo
